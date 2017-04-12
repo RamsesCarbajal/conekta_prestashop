@@ -46,18 +46,28 @@ class Conekta_Prestashop extends PaymentModule
         $this->tab = 'payments_gateways';
         $this->version = '1.0.0';
         $this->ps_versions_compliancy = array('min' => '1.7', 'max' => _PS_VERSION_);
-        $this->author = 'PrestaShop';
+        $this->author = 'Conekta';
         $this->controllers = array('validation');
         $this->is_eu_compatible = 1;
 
         $this->currencies = true;
         $this->currencies_mode = 'checkbox';
+        
+        
+        $config = Configuration::getMultiple(array('CHEQUE_NAME', 'CHEQUE_ADDRESS'));
+        if (isset($config['CHEQUE_NAME'])) {
+            $this->checkName = $config['CHEQUE_NAME'];
+        }
+        if (isset($config['CHEQUE_ADDRESS'])) {
+            $this->address = $config['CHEQUE_ADDRESS'];
+        }
+
 
         $this->bootstrap = true;
         parent::__construct();
 
         $this->displayName = $this->l('Conekta Prestashop');
-        $this->description = $this->l('Description of Conekta Prestashop');
+        $this->description = $this->l('This is a fucking awsome plugin');
 
         if (!count(Currency::checkPaymentCurrencies($this->id))) {
             $this->warning = $this->l('No currency has been set for this module.');
@@ -84,9 +94,9 @@ class Conekta_Prestashop extends PaymentModule
 
         $payment_options = [
             $this->getOfflinePaymentOption(),
-            $this->getExternalPaymentOption(),
+            //$this->getExternalPaymentOption(),
             $this->getEmbeddedPaymentOption(),
-            $this->getIframePaymentOption(),
+            //$this->getIframePaymentOption(),
         ];
 
         return $payment_options;
@@ -155,6 +165,209 @@ class Conekta_Prestashop extends PaymentModule
                      ->setLogo(Media::getMediaPath(_PS_MODULE_DIR_.$this->name.'/payment.jpg'));
 
         return $iframeOption;
+    }
+    private function _postValidation()
+    {
+        if (Tools::isSubmit('btnSubmit')) {
+            if (!Tools::getValue('CHEQUE_NAME')) {
+                $this->_postErrors[] = $this->trans('The "Payee" field is required.', array(),'Modules.Checkpayment.Admin');
+            } elseif (!Tools::getValue('CHEQUE_ADDRESS')) {
+                $this->_postErrors[] = $this->trans('The "Address" field is required.', array(), 'Modules.Checkpayment.Admin');
+            }
+        }
+    }
+    private function _postProcess()
+    {
+        if (Tools::isSubmit('btnSubmit')) {
+            Configuration::updateValue('CHEQUE_NAME', Tools::getValue('CHEQUE_NAME'));
+            Configuration::updateValue('CHEQUE_ADDRESS', Tools::getValue('CHEQUE_ADDRESS'));
+        }
+        $this->_html .= $this->displayConfirmation($this->trans('Settings updated', array(), 'Admin.Notifications.Success'));
+    }
+
+
+    private function _displayCheck()
+    {
+        return $this->display(__FILE__, './views/templates/hook/infos.tpl');
+    }
+    public function getConfigFieldsValues()
+    {
+        return array(
+            'CHEQUE_NAME' => Tools::getValue('CHEQUE_NAME', Configuration::get('CHEQUE_NAME')),
+            'CHEQUE_ADDRESS' => Tools::getValue('CHEQUE_ADDRESS', Configuration::get('CHEQUE_ADDRESS')),
+        );
+    }
+
+
+    public function renderForm()
+    {
+       $fields_form = array(
+            'form' => array(
+                'legend' => array(
+                  'title' => $this->trans('Contact details', array(), 'Modules.Checkpayment.Admin'),
+                  //'title' => 'some-title',  
+                  'icon' => 'icon-envelope'
+                ),
+                'input' => array(
+                    array(
+                        'type' => 'text',
+                        'label' => $this->trans('Payee (name)', array(), 'Modules.Checkpayment.Admin'),
+                        //'label' => 'some-label', 
+                        'name' => 'CHEQUE_NAME',
+                        'required' => true
+                    ),
+                    array(
+                        'type' => 'textarea',
+                        'label' => $this->trans('Address', array(), 'Modules.Checkpayment.Admin'),
+                        'desc' => $this->trans('Address where the check should be sent to.', array(), 'Modules.Checkpayment.Admin'),
+                        //'label' => 'some-new-label', 
+                        //'desc' => 'some-desc', 
+                        'name' => 'CHEQUE_ADDRESS',
+                        'required' => true
+                      ),
+                      array(
+                          'type'      => 'radio',                               // This is an <input type="checkbox"> tag.
+                          'label'     => $this->l('Mode'),        // The <label> for this <input> tag.
+                          'name'      => 'active',                              // The content of the 'id' attribute of the <input> tag.
+                          'required'  => true,                                  // If set to true, this option must be set.
+                          'class'     => 't',                                   // The content of the 'class' attribute of the <label> tag for the <input> tag.
+                          'is_bool'   => true,                                  // If set to true, this means you want to display a yes/no or true/false option.
+                                                                                // The CSS styling will therefore use green mark for the option value '1', and a red mark for value '2'.
+                                                                                // If set to false, this means there can be more than two radio buttons,
+                                                                                // and the option label text will be displayed instead of marks.
+                          'values'    => array(                                 // $values contains the data itself.
+                            array(
+                              'id'    => 'active_on',                           // The content of the 'id' attribute of the <input> tag, and of the 'for' attribute for the <label> tag.
+                              'value' => 1,                                     // The content of the 'value' attribute of the <input> tag.
+                              'label' => $this->l('Production')                    // The <label> for this radio button.
+                            ),
+                            array(
+                              'id'    => 'active_off',
+                              'value' => 0,
+                              'label' => $this->l('Sandbox')
+                            )
+                          ),
+                        ),
+                     array(
+                        'type' => 'text',
+                        'label' => $this->trans('Webhook', array(), 'Modules.Checkpayment.Admin'),
+                        //'label' => 'some-label', 
+                        'name' => 'WEB_HOOK',
+                        'required' => true
+                      ),
+                      array(
+                        'type'    => 'checkbox',                   // This is an <input type="checkbox"> tag.
+                        'label'   => $this->l('Payment Method'),          // The <label> for this <input> tag.
+                        'desc'    => $this->l('Choose options.'),  // A help text, displayed right next to the <input> tag.
+                        'name'    => 'Payment Methods',                    // The content of the 'id' attribute of the <input> tag.
+                        'values'  => array(
+                          'query' => array(
+                            array(
+                                'id' => 'card_payment_method',
+                                'name' => $this->l('Card'),
+                                'val' => 'card_payment_method'
+                              ),
+                           array(
+                                'id' => 'installment_payment_method',
+                                'name' => $this->l('Monthly Installents'),
+                                'val' => 'installment_payment_method'
+                            ),
+                           array(
+                               'id' => 'cash_payment_method',
+                                'name' => $this->l('Cash'),
+                                'val' => 'cash_payment_method'
+                            ),
+                           array(
+                                'id' => 'banorte_payment_method',
+                                'name' => $this->l('Banorte'),
+                                'val' => 'banorte_payment_method'
+                            ),
+                           array(
+                                'id' => 'spei_payment_method',
+                                'name' => $this->l('SPEI'),
+                                'val' => 'spei_payment_method'
+                            ),
+
+                        ),
+                          //'query' => $options,                     // $options contains the data itself.
+                          'id'    => 'id_option',                  // The value of the 'id' key must be the same as the key
+                                                                   // for the 'value' attribute of the <option> tag in each $options sub-array.
+                          'name'  => 'name'                        // The value of the 'name' key must be the same as the key
+                        ),                                           // for the text content of the <option> tag in each $options sub-array.
+                        'expand' => array(                      // 1.6-specific: you can hide the checkboxes when there are too many.
+                                                                   // A button appears with the number of options it hides.
+                          ['print_total'] => count($options),
+                          'default' => 'show',
+                          'show' => array('text' => $this->l('show'), 'icon' => 'plus-sign-alt'),
+                          'hide' => array('text' => $this->l('hide'), 'icon' => 'minus-sign-alt')
+                        ),
+                      ),
+                      array(
+                        'type' => 'password',
+                        'label' => $this->trans('Test Private Key', array(), 'Modules.Checkpayment.Admin'),
+                        'name' => 'TEST_PRIVATE_KEY',
+                        'required' => true
+                      ),
+                       array(
+                        'type' => 'password',
+                        'label' => $this->trans('Test Public Key', array(), 'Modules.Checkpayment.Admin'),
+                        'name' => 'TEST_PUBLIC_KEY',
+                        'required' => true
+                      ),
+                       array(
+                        'type' => 'password',
+                        'label' => $this->trans('Test Live Key', array(), 'Modules.Checkpayment.Admin'),
+                        'name' => 'LIVE_PRIVATE_KEY',
+                        'required' => true
+                      ),
+                       array(
+                        'type' => 'password',
+                        'label' => $this->trans('Live Public Key', array(), 'Modules.Checkpayment.Admin'),
+                        'name' => 'LIVE_PUBLIC_KEY',
+                        'required' => true
+                      ),
+            ),
+                'submit' => array(
+                    'title' => $this->trans('Save', array(), 'Admin.Actions'),
+                    //'title' => 'submit title'),
+                )
+            ),
+          );
+
+        $helper = new HelperForm();
+        $helper->show_toolbar = false;
+        $helper->id = (int)Tools::getValue('id_carrier');
+        $helper->identifier = $this->identifier;
+        $helper->submit_action = 'btnSubmit';
+        $helper->currentIndex = $this->context->link->getAdminLink('AdminModules', false).'&configure='.$this->name.'&tab_module='.$this->tab.'&module_name='.$this->name;
+        $helper->token = Tools::getAdminTokenLite('AdminModules');
+        $helper->tpl_vars = array(
+            'fields_value' => $this->getConfigFieldsValues(),
+        );
+
+        $this->fields_form = array();
+
+        return $helper->generateForm(array($fields_form));
+    }
+    public function getContent()
+    {
+        $this->_html = '';
+
+        if (Tools::isSubmit('btnSubmit')) {
+             $this->_postValidation();
+             if (!count($this->_postErrors)) {
+                 $this->_postProcess();
+             } else {
+                 foreach ($this->_postErrors as $err) {
+                     $this->_html .= $this->displayError($err);
+                 }
+             }
+         }
+
+         $this->_html .= $this->_displayCheck();
+         $this->_html .= $this->renderForm();
+
+         return $this->_html;
     }
 
     protected function generateForm()
