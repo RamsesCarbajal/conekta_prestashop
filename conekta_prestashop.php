@@ -25,7 +25,7 @@
 */
 
 use PrestaShop\PrestaShop\Core\Payment\PaymentOption;
-
+//include_once "/var/www/html/modules/conekta_prestashop/modules/conekta_prestashop/admin_controller.php";
 if (!defined('_PS_VERSION_')) {
     exit;
 }
@@ -54,13 +54,69 @@ class Conekta_Prestashop extends PaymentModule
         $this->currencies_mode = 'checkbox';
         
         
-        $config = Configuration::getMultiple(array('CHEQUE_NAME', 'CHEQUE_ADDRESS'));
+        $config = Configuration::getMultiple(array('CHEQUE_NAME', 
+          'CHEQUE_ADDRESS',
+          'MODE',
+          'WEB_HOOK',
+          'PAYMENT_METHS_CARD',
+          'PAYMENT_METHS_INSTALLMET',
+          'PAYMENT_METHS_CASH',
+          'PAYMENT_METHS_BANORTE',
+          'PAYMENT_METHS_SPEI',
+          'TEST_PRIVATE_KEY',
+          'TEST_PUBLIC_KEY',
+          'LIVE_PRIVATE_KEY',
+          'LIVE_PUBLIC_KEY'));
         if (isset($config['CHEQUE_NAME'])) {
             $this->checkName = $config['CHEQUE_NAME'];
         }
         if (isset($config['CHEQUE_ADDRESS'])) {
             $this->address = $config['CHEQUE_ADDRESS'];
         }
+
+        if (isset($config['MODE'])) {
+            $this->mode = $config['MODE'];
+        }
+        if (isset($config['WEB_HOOK'])) {
+            $this->web_hook = $config['WEB_HOOK'];
+        }
+
+        if (isset($config['PAYMENT_METHS_CARD'])) {
+            $this->paymnt_method_card = $config['PAYMENT_METHS_CARD'];
+        }
+
+        if (isset($config['PAYMENT_METHS_INSTALLMET'])) {
+            $this->payment_method_installment = $config['PAYMENT_METHS_INSTALLMET'];
+        }
+
+        if (isset($config['PAYMENT_METHS_CASH'])) {
+            $this->payment_method_cash = $config['PAYMENT_METHS_CASH'];
+        }
+
+        if (isset($config['PAYMENT_METHS_BANORTE'])) {
+            $this->payment_method_banorte = $config['PAYMENT_METHS_BANORTE'];
+        }
+
+        if (isset($config['PAYMENT_METHS_SPEI'])) {
+            $this->payment_method_spei = $config['PAYMENT_METHS_SPEI'];
+        }
+
+        if (isset($config['TEST_PRIVATE_KEY'])) {
+            $this->test_private_key = $config['TEST_PRIVATE_KEY'];
+        }
+
+        if (isset($config['TEST_PUBLIC_KEY'])) {
+            $this->test_public_key = $config['TEST_PUBLIC_KEY'];
+        }
+
+        if (isset($config['LIVE_PRIVATE_KEY'])) {
+            $this->live_private_key = $config['LIVE_PRIVATE_KEY'];
+        }
+
+        if (isset($config['LIVE_PUBLIC_KEY'])) {
+            $this->live_public_key = $config['LIVE_PUBLIC_KEY'];
+        }
+
 
 
         $this->bootstrap = true;
@@ -91,11 +147,20 @@ class Conekta_Prestashop extends PaymentModule
         if (!$this->checkCurrency($params['cart'])) {
             return;
         }
+        
+       $this->smarty->assign( [
+            'test_private_key' => Configuration::get('TEST_PRIVATE_KEY'),
+        ]);
+
+
+
 
         $payment_options = [
-            $this->getOfflinePaymentOption(),
+            //$this->getOfflinePaymentOption(),
             //$this->getExternalPaymentOption(),
-            $this->getEmbeddedPaymentOption(),
+          $this->getCardPaymentOption(),
+          $this->getOxxoPaymentOption(),
+          $this->getSpeiPaymentOption(),
             //$this->getIframePaymentOption(),
         ];
 
@@ -117,10 +182,23 @@ class Conekta_Prestashop extends PaymentModule
         return false;
     }
 
-    public function getOfflinePaymentOption()
+
+    public function getSpeiPaymentOption()
     {
         $offlineOption = new PaymentOption();
-        $offlineOption->setCallToActionText($this->l('Pay offline'))
+        $offlineOption->setCallToActionText($this->l('Pago por medio de Spei'))
+                      ->setAction($this->context->link->getModuleLink($this->name, 'validation', array(), true))
+                      ->setAdditionalInformation($this->context->smarty->fetch('module:conekta_prestashop/views/templates/front/payment_infos.tpl'))
+                      ->setLogo(Media::getMediaPath(_PS_MODULE_DIR_.$this->name.'/payment.jpg'));
+
+        return $offlineOption;
+    }
+
+
+    public function getOxxoPaymentOption()
+    {
+        $offlineOption = new PaymentOption();
+        $offlineOption->setCallToActionText($this->l('Pago en Efectivo con OxxoPay'))
                       ->setAction($this->context->link->getModuleLink($this->name, 'validation', array(), true))
                       ->setAdditionalInformation($this->context->smarty->fetch('module:conekta_prestashop/views/templates/front/payment_infos.tpl'))
                       ->setLogo(Media::getMediaPath(_PS_MODULE_DIR_.$this->name.'/payment.jpg'));
@@ -146,12 +224,13 @@ class Conekta_Prestashop extends PaymentModule
         return $externalOption;
     }
 
-    public function getEmbeddedPaymentOption()
+
+    public function getCardPaymentOption() 
     {
         $embeddedOption = new PaymentOption();
-        $embeddedOption->setCallToActionText($this->l('Pay embedded'))
-                       ->setForm($this->generateForm())
-                       ->setAdditionalInformation($this->context->smarty->fetch('module:conekta_prestashop/views/templates/front/payment_infos.tpl'))
+        $embeddedOption->setCallToActionText($this->l('Pago con tarjeta de crédito y débito (con opción de meses sin intereses)'))
+                       ->setForm($this->generateCardPaymentForm())
+                       //->setAdditionalInformation($this->context->smarty->fetch('module:conekta_prestashop/views/templates/front/payment_infos.tpl'))
                        ->setLogo(Media::getMediaPath(_PS_MODULE_DIR_.$this->name.'/payment.jpg'));
 
         return $embeddedOption;
@@ -170,17 +249,56 @@ class Conekta_Prestashop extends PaymentModule
     {
         if (Tools::isSubmit('btnSubmit')) {
             if (!Tools::getValue('CHEQUE_NAME')) {
-                $this->_postErrors[] = $this->trans('The "Payee" field is required.', array(),'Modules.Checkpayment.Admin');
+                $this->_postErrors[] = $this->trans('The "Payee" field is required.', array(),'Modules.Conekta_Prestashop.Admin');
             } elseif (!Tools::getValue('CHEQUE_ADDRESS')) {
-                $this->_postErrors[] = $this->trans('The "Address" field is required.', array(), 'Modules.Checkpayment.Admin');
+                $this->_postErrors[] = $this->trans('The "Address" field is required.', array(), 'Modules.Conekta_Prestashop.Admin');
             }
+
+            if (!Tools::getValue('WEB_HOOK')){
+              $this->_postErrors[] = $this->trans('The "Web Hook" field is required.', array(),'Modules.Conekta_Prestashop.Admin');
+            }
+
+            if (!Tools::getValue('TEST_PRIVATE_KEY')){
+              $this->_postErrors[] = $this->trans('The "Test Private Key" field is required.', array(),'Modules.Conekta_Prestashop.Admin');
+            }
+
+            if (!Tools::getValue('TEST_PUBLIC_KEY')){
+              $this->_postErrors[] = $this->trans('The "Test Public Key" field is required.', array(),'Modules.Conekta_Prestashop.Admin');
+            }
+            
+            if (Tools::getValue('LIVE_PRIVATE_KEY') && !Tools::getValue('LIVE_PUBLIC_KEY')){
+              $this->_postErrors[] = $this->trans('The "Live Public Key" field is required.', array(),'Modules.Conekta_Prestashop.Admin');
+            }
+ 
+             if (!Tools::getValue('LIVE_PRIVATE_KEY') && Tools::getValue('LIVE_PUBLIC_KEY')){
+              $this->_postErrors[] = $this->trans('The "Live Private Key" field is required.', array(),'Modules.Conekta_Prestashop.Admin');
+            }
+          
         }
     }
     private function _postProcess()
     {
         if (Tools::isSubmit('btnSubmit')) {
             Configuration::updateValue('CHEQUE_NAME', Tools::getValue('CHEQUE_NAME'));
+
             Configuration::updateValue('CHEQUE_ADDRESS', Tools::getValue('CHEQUE_ADDRESS'));
+            Configuration::updateValue('MODE', Tools::getValue('MODE'));
+            Configuration::updateValue('WEB_HOOK', Tools::getValue('WEB_HOOK'));
+            Configuration::updateValue('PAYMENT_METHS_CARD', Tools::getValue('PAYMENT_METHS_CARD'));
+            Configuration::updateValue('PAYMENT_METHS_INSTALLMET', Tools::getValue('PAYMENT_METHS_INSTALLMET'));
+            Configuration::updateValue('PAYMENT_METHS_CASH', Tools::getValue('PAYMENT_METHS_CASH'));
+            Configuration::updateValue('PAYMENT_METHS_BANORTE', Tools::getValue('PAYMENT_METHS_BANORTE'));
+            Configuration::updateValue('PAYMENT_METHS_SPEI', Tools::getValue('PAYMENT_METHS_SPEI'));
+
+            Configuration::updateValue('TEST_PRIVATE_KEY', Tools::getValue('TEST_PRIVATE_KEY'));
+            Configuration::updateValue('TEST_PUBLIC_KEY', Tools::getValue('TEST_PUBLIC_KEY'));
+            Configuration::updateValue('LIVE_PRIVATE_KEY', Tools::getValue('LIVE_PRIVATE_KEY'));
+            Configuration::updateValue('LIVE_PUBLIC_KEY', Tools::getValue('LIVE_PUBLIC_KEY'));
+
+
+
+
+
         }
         $this->_html .= $this->displayConfirmation($this->trans('Settings updated', array(), 'Admin.Notifications.Success'));
     }
@@ -195,31 +313,42 @@ class Conekta_Prestashop extends PaymentModule
         return array(
             'CHEQUE_NAME' => Tools::getValue('CHEQUE_NAME', Configuration::get('CHEQUE_NAME')),
             'CHEQUE_ADDRESS' => Tools::getValue('CHEQUE_ADDRESS', Configuration::get('CHEQUE_ADDRESS')),
+            'MODE' => Tools::getValue('MODE', Configuration::get('MODE')),
+            'WEB_HOOK' => Tools::getValue('WEB_HOOK', Configuration::get('WEB_HOOK')),
+            'PAYMENT_METHS_CARD' => Tools::getValue('PAYMENT_METHS_CARD', Configuration::get('PAYMENT_METHS_CARD')),
+            'PAYMENT_METHS_INSTALLMET' => Tools::getValue('PAYMENT_METHS_INSTALLMET', Configuration::get('PAYMENT_METHS_INSTALLMET')),
+            'PAYMENT_METHS_CASH' => Tools::getValue('PAYMENT_METHS_CASH', Configuration::get('PAYMENT_METHS_CASH')),
+            'PAYMENT_METHS_BANORTE' => Tools::getValue('PAYMENT_METHS_BANORTE', Configuration::get('PAYMENT_METHS_BANORTE')),
+            'PAYMENT_METHS_SPEI' => Tools::getValue('PAYMENT_METHS_SPEI', Configuration::get('PAYMENT_METHS_SPEI')),
+            'TEST_PRIVATE_KEY' => Tools::getValue('TEST_PRIVATE_KEY', Configuration::get('TEST_PRIVATE_KEY')),
+            'TEST_PUBLIC_KEY' => Tools::getValue('TEST_PUBLIC_KEY', Configuration::get('TEST_PUBLIC_KEY')),
+            'LIVE_PRIVATE_KEY' => Tools::getValue('LIVE_PRIVATE_KEY', Configuration::get('LIVE_PRIVATE_KEY')),
+            'LIVE_PUBLIC_KEY' => Tools::getValue('LIVE_PUBLIC_KEY', Configuration::get('LIVE_PUBLIC_KEY')),
         );
     }
 
 
-    public function renderForm()
+    public function buildAdminContent()
     {
-       $fields_form = array(
+        $fields_form = array(
             'form' => array(
                 'legend' => array(
-                  'title' => $this->trans('Contact details', array(), 'Modules.Checkpayment.Admin'),
+                  'title' => $this->trans('Contact details', array(), 'Modules.Conekta_Prestashop.Admin'),
                   //'title' => 'some-title',  
                   'icon' => 'icon-envelope'
                 ),
                 'input' => array(
                     array(
                         'type' => 'text',
-                        'label' => $this->trans('Payee (name)', array(), 'Modules.Checkpayment.Admin'),
+                        'label' => $this->trans('Payee (name)', array(), 'Modules.Conekta_Prestashop.Admin'),
                         //'label' => 'some-label', 
                         'name' => 'CHEQUE_NAME',
                         'required' => true
                     ),
                     array(
                         'type' => 'textarea',
-                        'label' => $this->trans('Address', array(), 'Modules.Checkpayment.Admin'),
-                        'desc' => $this->trans('Address where the check should be sent to.', array(), 'Modules.Checkpayment.Admin'),
+                        'label' => $this->trans('Address', array(), 'Modules.Conekta_Prestashop.Admin'),
+                        'desc' => $this->trans('Address where the check should be sent to.', array(), 'Modules.Conekta_Prestashop.Admin'),
                         //'label' => 'some-new-label', 
                         //'desc' => 'some-desc', 
                         'name' => 'CHEQUE_ADDRESS',
@@ -228,7 +357,7 @@ class Conekta_Prestashop extends PaymentModule
                       array(
                           'type'      => 'radio',                               // This is an <input type="checkbox"> tag.
                           'label'     => $this->l('Mode'),        // The <label> for this <input> tag.
-                          'name'      => 'active',                              // The content of the 'id' attribute of the <input> tag.
+                          'name'      => 'MODE',                              // The content of the 'id' attribute of the <input> tag.
                           'required'  => true,                                  // If set to true, this option must be set.
                           'class'     => 't',                                   // The content of the 'class' attribute of the <label> tag for the <input> tag.
                           'is_bool'   => true,                                  // If set to true, this means you want to display a yes/no or true/false option.
@@ -250,7 +379,7 @@ class Conekta_Prestashop extends PaymentModule
                         ),
                      array(
                         'type' => 'text',
-                        'label' => $this->trans('Webhook', array(), 'Modules.Checkpayment.Admin'),
+                        'label' => $this->trans('Webhook', array(), 'Modules.Conekta_Prestashop.Admin'),
                         //'label' => 'some-label', 
                         'name' => 'WEB_HOOK',
                         'required' => true
@@ -259,38 +388,38 @@ class Conekta_Prestashop extends PaymentModule
                         'type'    => 'checkbox',                   // This is an <input type="checkbox"> tag.
                         'label'   => $this->l('Payment Method'),          // The <label> for this <input> tag.
                         'desc'    => $this->l('Choose options.'),  // A help text, displayed right next to the <input> tag.
-                        'name'    => 'Payment Methods',                    // The content of the 'id' attribute of the <input> tag.
+                        'name'    => 'PAYMENT_METHS',                    // The content of the 'id' attribute of the <input> tag.
                         'values'  => array(
                           'query' => array(
                             array(
-                                'id' => 'card_payment_method',
+                                'id' => 'CARD',
                                 'name' => $this->l('Card'),
                                 'val' => 'card_payment_method'
                               ),
                            array(
-                                'id' => 'installment_payment_method',
+                                'id' => 'INSTALLMET',
                                 'name' => $this->l('Monthly Installents'),
                                 'val' => 'installment_payment_method'
                             ),
                            array(
-                               'id' => 'cash_payment_method',
+                               'id' => 'CASH',
                                 'name' => $this->l('Cash'),
                                 'val' => 'cash_payment_method'
                             ),
                            array(
-                                'id' => 'banorte_payment_method',
+                                'id' => 'BANORTE',
                                 'name' => $this->l('Banorte'),
                                 'val' => 'banorte_payment_method'
                             ),
                            array(
-                                'id' => 'spei_payment_method',
+                                'id' => 'SPEI',
                                 'name' => $this->l('SPEI'),
                                 'val' => 'spei_payment_method'
                             ),
 
                         ),
                           //'query' => $options,                     // $options contains the data itself.
-                          'id'    => 'id_option',                  // The value of the 'id' key must be the same as the key
+                          'id'    => 'id',                  // The value of the 'id' key must be the same as the key
                                                                    // for the 'value' attribute of the <option> tag in each $options sub-array.
                           'name'  => 'name'                        // The value of the 'name' key must be the same as the key
                         ),                                           // for the text content of the <option> tag in each $options sub-array.
@@ -303,26 +432,26 @@ class Conekta_Prestashop extends PaymentModule
                         ),
                       ),
                       array(
-                        'type' => 'password',
-                        'label' => $this->trans('Test Private Key', array(), 'Modules.Checkpayment.Admin'),
+                        'type' => 'text',
+                        'label' => $this->trans('Test Private Key', array(), 'Modules.Conekta_Prestashop.Admin'),
                         'name' => 'TEST_PRIVATE_KEY',
                         'required' => true
                       ),
                        array(
-                        'type' => 'password',
-                        'label' => $this->trans('Test Public Key', array(), 'Modules.Checkpayment.Admin'),
+                        'type' => 'text',
+                        'label' => $this->trans('Test Public Key', array(), 'Modules.Conekta_Prestashop.Admin'),
                         'name' => 'TEST_PUBLIC_KEY',
                         'required' => true
                       ),
                        array(
                         'type' => 'password',
-                        'label' => $this->trans('Test Live Key', array(), 'Modules.Checkpayment.Admin'),
+                        'label' => $this->trans('Live Private Key', array(), 'Modules.Conekta_Prestashop.Admin'),
                         'name' => 'LIVE_PRIVATE_KEY',
                         'required' => true
                       ),
                        array(
                         'type' => 'password',
-                        'label' => $this->trans('Live Public Key', array(), 'Modules.Checkpayment.Admin'),
+                        'label' => $this->trans('Live Public Key', array(), 'Modules.Conekta_Prestashop.Admin'),
                         'name' => 'LIVE_PUBLIC_KEY',
                         'required' => true
                       ),
@@ -333,8 +462,14 @@ class Conekta_Prestashop extends PaymentModule
                 )
             ),
           );
+      return $fields_form; 
+    }
 
-        $helper = new HelperForm();
+    public function renderForm()
+    {
+      $fields_form  = $this->buildAdminContent();
+      //$fields_form = buildAdminParameters(); 
+      $helper = new HelperForm();
         $helper->show_toolbar = false;
         $helper->id = (int)Tools::getValue('id_carrier');
         $helper->identifier = $this->identifier;
@@ -370,7 +505,7 @@ class Conekta_Prestashop extends PaymentModule
          return $this->_html;
     }
 
-    protected function generateForm()
+    protected function generateCardPaymentForm()
     {
         $months = [];
         for ($i = 1; $i <= 12; $i++) {
@@ -386,6 +521,7 @@ class Conekta_Prestashop extends PaymentModule
             'action' => $this->context->link->getModuleLink($this->name, 'validation', array(), true),
             'months' => $months,
             'years' => $years,
+            'test_private_key' => Configuration::get('TEST_PRIVATE_KEY')
         ]);
 
         return $this->context->smarty->fetch('module:conekta_prestashop/views/templates/front/payment_form.tpl');

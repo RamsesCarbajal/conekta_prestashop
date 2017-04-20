@@ -24,20 +24,14 @@
 *}
 
 <form action="{$action}" id="payment-form">
-
   <p>
-    <label>{l s='Card number'}</label>
-    <input type="text" size="20" autocomplete="off" name="card-number">
-  </p>
-
-  <p>
-    <label>{l s='Firstname'}</label>
+    <label>{l s='Nombre del Tarjetahabiente'}</label>
     <input type="text" autocomplete="off" name="firstname">
   </p>
 
   <p>
-    <label>{l s='Lastname'}</label>
-    <input type="text" autocomplete="off" name="lastname">
+    <label>{l s='Número de Tarjeta'}</label>
+    <input type="text" size="20" autocomplete="off" name="card-number">
   </p>
 
   <p>

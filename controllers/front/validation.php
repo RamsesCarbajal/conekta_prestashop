@@ -34,7 +34,8 @@ class ConektaPrestashopValidationModuleFrontController extends ModuleFrontContro
      */
     public function postProcess()
     {
-        $cart = $this->context->cart;
+      error_log("entro no postProcess");
+      $cart = $this->context->cart;
         if ($cart->id_customer == 0 || $cart->id_address_delivery == 0 || $cart->id_address_invoice == 0 || !$this->module->active) {
             Tools::redirect('index.php?controller=order&step=1');
         }
